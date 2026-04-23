@@ -5,7 +5,8 @@ Wordpress Gelişmiş Seo Editör
 Temanın archvives.php dosyasında
  <?php
         if( have_posts() ) :
-        bu satırdan önce aşağıdaki satırı ekle
+
+bu satırdan önce aşağıdaki satırı ekle
 
 
 // Kategori sayfasındaysak ve bir kategori açıklaması varsa göster
