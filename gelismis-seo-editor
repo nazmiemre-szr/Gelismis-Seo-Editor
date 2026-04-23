@@ -1,0 +1,330 @@
+<?php
+/*
+Plugin Name: Gelişmiş SEO ve HTML Editörü (Pro)
+Description: Post, Page ve Kategoriler için SEO yönetimi. Özel editör, çoklu başlık ekleri, Generator ve Tarih Meta temizleyici, Site Haritası.
+Version: 3.0
+Author: Kendi Eklentim
+*/
+
+if ( ! defined( 'ABSPATH' ) ) exit;
+
+/** ====================================================================
+ * 1. KATEGORİ HTML EDİTÖRÜ (İlk versiyondaki orijinal hali)
+ * ================================================================== */
+remove_filter( 'pre_term_description', 'wp_filter_kses' );
+remove_filter( 'term_description', 'wp_kses_data' );
+
+
+// Kategori açıklamalarında NextGEN ve diğer kısa kodların çalışmasını BURADA sağlıyoruz
+add_filter( 'term_description', 'shortcode_unautop' );
+add_filter( 'term_description', 'do_shortcode' );
+
+add_action( 'category_edit_form_fields', 'gse_kategori_duzenle_alanlari', 10, 2 );
+function gse_kategori_duzenle_alanlari( $term, $taxonomy ) {
+    $seo_title = get_term_meta( $term->term_id, 'seo_title', true );
+    $seo_desc  = get_term_meta( $term->term_id, 'seo_desc', true );
+    ?>
+    <tr class="form-field">
+        <th scope="row" valign="top"><label for="description">Kategori Açıklaması (Gelişmiş Editör)</label></th>
+        <td>
+            <?php
+            $settings = array('wpautop' => true, 'media_buttons' => true, 'quicktags' => true, 'textarea_rows' => '10', 'textarea_name' => 'description');
+            wp_editor( html_entity_decode( $term->description ), 'cat_description_editor', $settings );
+            ?>
+            <script>
+                jQuery(document).ready(function($) {
+                    $('.term-description-wrap').not(':has(#wp-cat_description_editor-wrap)').hide();
+                });
+            </script>
+        </td>
+    </tr>
+    <?php gse_seo_html_bas($seo_title, $seo_desc); ?>
+    
+    <?php
+}
+
+/** ====================================================================
+ * 2. POST VE PAGE İÇİN SEO META BOX
+ * ================================================================== */
+add_action( 'add_meta_boxes', function() {
+    add_meta_box( 'gse_seo_box', 'SEO Ayarları', 'gse_post_seo_box_callback', ['post', 'page'], 'normal', 'high' );
+});
+
+function gse_post_seo_box_callback( $post ) {
+    $seo_title = get_post_meta($post->ID, '_gse_title', true);
+    $seo_desc  = get_post_meta($post->ID, '_gse_desc', true);
+    gse_seo_html_bas($seo_title, $seo_desc);
+}
+
+/** ====================================================================
+ * 3. ORTAK SEO ALANLARI VE KARAKTER SAYACI (HTML Şablonu)
+ * ================================================================== */
+function gse_seo_html_bas($title, $desc) {
+    ?>
+    <div class="gse-seo-container" style="padding: 15px; background: #fff; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04); margin-top: 15px;">
+        <p style="margin-bottom: 5px;"><strong>SEO Başlığı (Özel yazmazsanız varsayılan başlık + eklenti ayarındaki ek gelir):</strong></p>
+        <input type="text" name="gse_title" id="gse_title" value="<?php echo esc_attr($title); ?>" style="width:100%; padding: 5px;">
+        <p style="color:#666; margin-top:4px;">Karakter: <span id="gse_title_count" style="font-weight:bold;">0</span> / 60</p>
+
+        <p style="margin-top: 15px; margin-bottom: 5px;"><strong>SEO Açıklaması (Description):</strong></p>
+        <textarea name="gse_desc" id="gse_desc" rows="3" style="width:100%; padding: 5px;"><?php echo esc_textarea($desc); ?></textarea>
+        <p style="color:#666; margin-top:4px;">Karakter: <span id="gse_desc_count" style="font-weight:bold;">0</span> / 160</p>
+    </div>
+    <script>
+        jQuery(document).ready(function($) {
+            function updateCounts() {
+                var tCount = $('#gse_title').val().length;
+                var dCount = $('#gse_desc').val().length;
+                $('#gse_title_count').text(tCount).css('color', tCount > 60 ? 'red' : 'green');
+                $('#gse_desc_count').text(dCount).css('color', dCount > 160 ? 'red' : 'green');
+            }
+            $('#gse_title, #gse_desc').on('input', updateCounts);
+            updateCounts();
+        });
+    </script>
+    <?php
+}
+
+/** ====================================================================
+ * 4. VERİLERİ KAYDETME
+ * ================================================================== */
+add_action( 'save_post', function($post_id) {
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+    if(isset($_POST['gse_title'])) update_post_meta($post_id, '_gse_title', sanitize_text_field($_POST['gse_title']));
+    if(isset($_POST['gse_desc'])) update_post_meta($post_id, '_gse_desc', sanitize_textarea_field($_POST['gse_desc']));
+});
+
+add_action( 'edited_category', function($term_id) {
+    if(isset($_POST['gse_title'])) update_term_meta($term_id, 'seo_title', sanitize_text_field($_POST['gse_title']));
+    if(isset($_POST['gse_desc'])) update_term_meta($term_id, 'seo_desc', sanitize_textarea_field($_POST['gse_desc']));
+});
+
+/** ====================================================================
+ * 5. GLOBAL AYARLAR PANELİ (AIOSEO İçe Aktarma Özelliği Eklendi)
+ * ================================================================== */
+add_action( 'admin_menu', function() {
+    add_options_page( 'Gelişmiş SEO', 'Gelişmiş SEO', 'manage_options', 'gse-seo-settings', 'gse_settings_page' );
+});
+
+function gse_settings_page() {
+    // 1. Ayarları Kaydetme İşlemi
+    if (isset($_POST['gse_save_settings'])) {
+        update_option('gse_post_suffix', sanitize_text_field($_POST['gse_post_suffix']));
+        update_option('gse_page_suffix', sanitize_text_field($_POST['gse_page_suffix']));
+        update_option('gse_category_suffix', sanitize_text_field($_POST['gse_category_suffix']));
+        update_option('gse_remove_generator', isset($_POST['gse_remove_generator']) ? '1' : '0');
+        update_option('gse_remove_page_dates', isset($_POST['gse_remove_page_dates']) ? '1' : '0');
+        echo '<div class="updated"><p>Ayarlar başarıyla kaydedildi.</p></div>';
+    }
+
+    // 2. AIOSEO Verilerini İçe Aktarma İşlemi
+    if (isset($_POST['gse_import_aioseo'])) {
+        global $wpdb;
+        $aktarilan_kayit = 0;
+
+        // Yazı ve Sayfaları (Posts) Aktar
+        $aioseo_posts_table = $wpdb->prefix . 'aioseo_posts';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$aioseo_posts_table'") == $aioseo_posts_table) {
+            $posts = $wpdb->get_results("SELECT post_id, title, description FROM $aioseo_posts_table WHERE title != '' OR description != ''");
+            foreach ($posts as $p) {
+                if (!empty($p->title)) update_post_meta($p->post_id, '_gse_title', $p->title);
+                if (!empty($p->description)) update_post_meta($p->post_id, '_gse_desc', $p->description);
+                $aktarilan_kayit++;
+            }
+        }
+
+        // Kategorileri (Terms) Aktar
+        $aioseo_terms_table = $wpdb->prefix . 'aioseo_terms';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$aioseo_terms_table'") == $aioseo_terms_table) {
+            $terms = $wpdb->get_results("SELECT term_id, title, description FROM $aioseo_terms_table WHERE title != '' OR description != ''");
+            foreach ($terms as $t) {
+                if (!empty($t->title)) update_term_meta($t->term_id, 'seo_title', $t->title);
+                if (!empty($t->description)) update_term_meta($t->term_id, 'seo_desc', $t->description);
+                $aktarilan_kayit++;
+            }
+        }
+
+        if ($aktarilan_kayit > 0) {
+            echo '<div class="updated" style="border-left-color: #46b450;"><p><strong>Harika!</strong> AIOSEO veritabanı tarandı ve toplam <strong>' . $aktarilan_kayit . '</strong> adet sayfa/kategori verisi başarıyla eklentimize kopyalandı.</p></div>';
+        } else {
+            echo '<div class="notice notice-warning"><p>Aktarılacak herhangi bir AIOSEO verisi bulunamadı veya tablolar mevcut değil.</p></div>';
+        }
+    }
+    ?>
+    <div class="wrap">
+        <h1>Gelişmiş SEO Ayarları</h1>
+        <form method="post">
+            <table class="form-table">
+                <tr><th colspan="2"><h2>Otomatik Başlık Ekleri (Suffix)</h2><hr></th></tr>
+                <tr>
+                    <th scope="row">Yazılar (Post) İçin Ek</th>
+                    <td><input type="text" name="gse_post_suffix" value="<?php echo esc_attr(get_option('gse_post_suffix', '')); ?>" class="regular-text"><br><small>Örn: - Blog</small></td>
+                </tr>
+                <tr>
+                    <th scope="row">Sayfalar (Page) İçin Ek</th>
+                    <td><input type="text" name="gse_page_suffix" value="<?php echo esc_attr(get_option('gse_page_suffix', '')); ?>" class="regular-text"><br><small>Örn: - Sitem.com</small></td>
+                </tr>
+                <tr>
+                    <th scope="row">Kategoriler İçin Ek</th>
+                    <td><input type="text" name="gse_category_suffix" value="<?php echo esc_attr(get_option('gse_category_suffix', '')); ?>" class="regular-text"><br><small>Örn: Kategorisi</small></td>
+                </tr>
+                
+                <tr><th colspan="2"><h2>Meta Etiket Temizliği</h2><hr></th></tr>
+                <tr>
+                    <th scope="row">Generator Etiketlerini Kaldır</th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="gse_remove_generator" value="1" <?php checked(get_option('gse_remove_generator'), '1'); ?>>
+                            Sistemin otomatik oluşturduğu tüm <code>&lt;meta name="generator"&gt;</code> etiketlerini sil (WP, WooCommerce vb. kaynaklı). Güvenlik ve temiz kod için önerilir.
+                        </label>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Sayfalardan Tarih Etiketlerini Kaldır</th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="gse_remove_page_dates" value="1" <?php checked(get_option('gse_remove_page_dates'), '1'); ?>>
+                            Sadece "Sayfalar (Page)" türündeki içeriklerde tarih meta etiketlerini (published_time, modified_time vb.) gizle.
+                        </label>
+                    </td>
+                </tr>
+
+                <tr><th colspan="2"><h2><span class="dashicons dashicons-database" style="margin-top:4px;"></span> Veri Taşıma Araçları</h2><hr></th></tr>
+                <tr>
+                    <th scope="row">AIOSEO'dan Veri Çek</th>
+                    <td>
+                        <input type="submit" name="gse_import_aioseo" class="button button-secondary" value="AIOSEO Verilerini İçe Aktar" onclick="return confirm('Bu işlem veritabanını tarayarak AIOSEO başlık ve açıklamalarını bizim eklentiye kopyalar. Emin misiniz?');">
+                        <p class="description">Eğer önceden All in One SEO kullandıysanız ve girdiğiniz başlık/açıklama verilerini kaybetmek istemiyorsanız bu butona <strong>bir kere</strong> tıklamanız yeterlidir.</p>
+                    </td>
+                </tr>
+            </table>
+            <p><input type="submit" name="gse_save_settings" class="button button-primary" value="Değişiklikleri Kaydet"></p>
+        </form>
+    </div>
+    <?php
+}
+/** ====================================================================
+ * 6. ÖN YÜZ SE0 VE TEMİZLİK İŞLEMLERİ (Başlık Basma ve Output Buffer)
+ * ================================================================== */
+
+// A. Başlıkları Basma Logic'i
+add_filter( 'pre_get_document_title', 'gse_render_title', 999 );
+function gse_render_title($title) {
+    
+    if ( is_page() ) {
+        $custom_title = get_post_meta(get_the_ID(), '_gse_title', true);
+        // Özel başlık girildiyse SADECE onu göster (ek ekleme)
+        if ( !empty($custom_title) ) return $custom_title;
+        
+        // Girilmediyse varsayılan sayfa başlığı + ayarlardaki eki göster
+        $suffix = get_option('gse_page_suffix', '');
+        return get_the_title() . (!empty($suffix) ? " " . $suffix : "");
+        
+    } elseif ( is_singular('post') ) {
+        $custom_title = get_post_meta(get_the_ID(), '_gse_title', true);
+        if ( !empty($custom_title) ) return $custom_title;
+        
+        $suffix = get_option('gse_post_suffix', '');
+        return get_the_title() . (!empty($suffix) ? " " . $suffix : "");
+        
+    } elseif ( is_category() ) {
+        $custom_title = get_term_meta(get_queried_object_id(), 'seo_title', true);
+        if ( !empty($custom_title) ) return $custom_title;
+        
+        $suffix = get_option('gse_category_suffix', '');
+        return single_cat_title('', false) . (!empty($suffix) ? " " . $suffix : "");
+    }
+
+    return $title;
+}
+
+// B. Description Basma (Otomatik Çekme Özelliği Eklendi)
+add_action( 'wp_head', function() {
+    $desc = "";
+    
+    if ( is_singular() ) {
+        // Önce özel SEO açıklaması var mı diye bak
+        $desc = get_post_meta(get_the_ID(), '_gse_desc', true);
+        
+        // Yoksa yazının özetini veya içeriğini al
+        if ( empty($desc) ) {
+            $post = get_post();
+            $desc = has_excerpt() ? get_the_excerpt() : wp_trim_words( $post->post_content, 25, '' );
+        }
+    } elseif ( is_category() ) {
+        // Önce özel SEO açıklaması var mı diye bak
+        $desc = get_term_meta(get_queried_object_id(), 'seo_desc', true);
+        
+        // Yoksa kategorinin kendi HTML açıklamasını al (HTML etiketlerini temizleyerek)
+        if ( empty($desc) ) {
+            $desc = category_description();
+        }
+    }
+    
+    // HTML etiketlerini, kısa kodları ve boşlukları temizle
+    $desc = wp_strip_all_tags( strip_shortcodes( $desc ) );
+    $desc = trim( preg_replace( '/\s+/', ' ', $desc ) );
+    
+    // Açıklama doluysa, ilk 160 karakteri keserek meta etiketini bas
+    if ( !empty($desc) ) {
+        $desc = mb_substr( $desc, 0, 160, 'UTF-8' );
+        echo '<meta name="description" content="' . esc_attr($desc) . '" />' . "\n";
+    }
+}, 1 );
+
+// C. Meta Etiket Temizleyici (Çıktı Tamponlaması ile kesin çözüm)
+add_action('wp_head', 'gse_start_head_buffer', 0);
+add_action('wp_head', 'gse_end_head_buffer', 9999);
+
+function gse_start_head_buffer() { ob_start(); }
+function gse_end_head_buffer() {
+    $head = ob_get_clean();
+    
+    // Generator Temizliği
+    if ( get_option('gse_remove_generator') == '1' ) {
+        remove_action('wp_head', 'wp_generator'); 
+        add_filter('the_generator', '__return_false');
+        $head = preg_replace('/<meta name=["\']generator["\'][^>]*>\s*/i', '', $head);
+    }
+    
+    // Sayfalarda Tarih Temizliği
+    if ( get_option('gse_remove_page_dates') == '1' && is_page() ) {
+        $head = preg_replace('/<meta (property|name)=["\'](article:published_time|article:modified_time|og:updated_time|date|revised|last-modified)["\'][^>]*>\s*/i', '', $head);
+    }
+    
+    echo $head;
+}
+
+/** ====================================================================
+ * 7. SİTE HARİTASI (XML SITEMAP) 
+ * ================================================================== */
+add_action( 'init', function() {
+    add_rewrite_rule( '^sitemap\.xml$', 'index.php?gse_sitemap=1', 'top' );
+});
+
+add_filter( 'query_vars', function($vars) {
+    $vars[] = 'gse_sitemap';
+    return $vars;
+});
+
+add_action( 'template_redirect', function() {
+    if ( get_query_var( 'gse_sitemap' ) ) {
+        header( 'Content-Type: application/xml; charset=utf-8' );
+        echo '<?xml version="1.0" encoding="UTF-8"?>';
+        echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">';
+        
+        $posts = get_posts(['post_type' => ['post', 'page'], 'posts_per_page' => -1]);
+        foreach($posts as $post) {
+            echo '<url><loc>'.get_permalink($post->ID).'</loc><lastmod>'.get_the_modified_date('c', $post->ID).'</lastmod></url>';
+        }
+        
+        $cats = get_terms(['taxonomy' => 'category']);
+        foreach($cats as $cat) {
+            echo '<url><loc>'.get_term_link($cat).'</loc></url>';
+        }
+        echo '</urlset>';
+        exit;
+    }
+});
+
+register_activation_hook( __FILE__, 'flush_rewrite_rules' );
