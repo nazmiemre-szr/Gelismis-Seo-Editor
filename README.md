@@ -9,8 +9,7 @@ Wordpress Gelişmiş Seo Editör
 
 
 Temanın archvives.php dosyasında
-//bu kodu bulup 
-<?php
+//bu kodu bulup <?php
         if( have_posts() ) :
 //kod sonu
 bu satırdan önce aşağıdaki satırı ekle
